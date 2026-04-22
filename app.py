@@ -124,6 +124,9 @@ def assign_or_get_player_symbol(game_id, game_mode, x_player_id, o_player_id):
     if o_player_id == player_id:
         return "O"
 
+    if x_player_id and o_player_id:
+        return None
+
     conn = get_db()
     if not x_player_id:
         conn.execute("UPDATE game SET x_player_id=? WHERE id=?", (player_id, game_id))
@@ -138,7 +141,7 @@ def assign_or_get_player_symbol(game_id, game_mode, x_player_id, o_player_id):
         return "O"
 
     conn.close()
-    return "SPECTATOR"
+    return None
 
 
 def maybe_record_result(game_id, board):
@@ -167,6 +170,21 @@ def maybe_record_result(game_id, board):
 
     conn.commit()
     conn.close()
+
+
+def get_join_status_message(game_mode, viewer_symbol, x_player_id, o_player_id):
+    if game_mode != "friend":
+        return "You are Player X."
+
+    if viewer_symbol == "X":
+        if o_player_id:
+            return "Player O joined."
+        return "Waiting for another player to join."
+
+    if viewer_symbol == "O":
+        return "You joined as Player O."
+
+    return "Room is full."
 
 # --- Game logic ---
 def check_winner(board):
@@ -249,6 +267,9 @@ def index(game_id):
         return f"Game {game_id} not found. Please create a new game."
 
     viewer_symbol = assign_or_get_player_symbol(game_id, game_mode, x_player_id, o_player_id)
+    if game_mode == "friend" and viewer_symbol is None:
+        return render_template("home.html", room_full=True, room_id=game_id)
+
     winner = check_winner(board)
     draw = ("-" not in board and not winner)
     can_move = not winner and not draw and (
@@ -258,7 +279,8 @@ def index(game_id):
 
     return render_template("index.html", board=board, current=current_player, winner=winner,
                            game_id=game_id, x_wins=x_wins, o_wins=o_wins, draws=draws, game_mode=game_mode,
-                           can_move=can_move, viewer_symbol=viewer_symbol)
+                           can_move=can_move, viewer_symbol=viewer_symbol,
+                           join_status=get_join_status_message(game_mode, viewer_symbol, x_player_id, o_player_id))
 
 
 @app.route("/state/<game_id>")
@@ -290,7 +312,7 @@ def move(game_id, cell):
 
     if game_mode == "friend":
         viewer_symbol = assign_or_get_player_symbol(game_id, game_mode, x_player_id, o_player_id)
-        if viewer_symbol != current_player:
+        if viewer_symbol is None or viewer_symbol != current_player:
             return redirect(url_for("index", game_id=game_id))
 
     if board and board[cell] == "-" and not check_winner(board):

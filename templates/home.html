@@ -147,6 +147,26 @@
             font-size: 14px;
         }
 
+        .notice {
+            margin-bottom: 20px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+        }
+
+        .notice-error {
+            background: #fff3e0;
+            color: #e65100;
+            border: 1px solid #ffcc80;
+        }
+
+        .notice-success {
+            background: #e8f5e9;
+            color: #2e7d32;
+            border: 1px solid #a5d6a7;
+        }
+
         @media (max-width: 600px) {
             .container {
                 padding: 30px;
@@ -166,6 +186,12 @@
     <div class="container">
         <h1>🎮 Tic Tac Toe</h1>
         <p class="subtitle">Play Now</p>
+
+        {% if room_full %}
+            <div class="notice notice-error">
+                Room is full. Only 2 players can join this game.
+            </div>
+        {% endif %}
 
         <div class="form-group">
             <div style="margin-bottom: 25px;">
