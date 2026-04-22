@@ -2,12 +2,25 @@ from flask import Flask, render_template, redirect, url_for, request
 import sqlite3
 import uuid
 import random
+import os
+import traceback
+
+from werkzeug.exceptions import HTTPException
 
 app = Flask(__name__)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_PATH = os.path.join(BASE_DIR, "tic.db")
+
+
+@app.errorhandler(Exception)
+def handle_unexpected_error(error):
+    if isinstance(error, HTTPException):
+        return error
+    return traceback.format_exc(), 500, {"Content-Type": "text/plain; charset=utf-8"}
 
 # --- Database helpers ---
 def get_db():
-    conn = sqlite3.connect("tic.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -25,6 +38,11 @@ def init_db():
             game_mode TEXT DEFAULT 'friend'
         )
     """)
+
+    columns = [row[1] for row in c.execute("PRAGMA table_info(game)").fetchall()]
+    if "game_mode" not in columns:
+        c.execute("ALTER TABLE game ADD COLUMN game_mode TEXT DEFAULT 'friend'")
+
     conn.commit()
     conn.close()
 
@@ -46,6 +64,9 @@ def create_game(game_id, game_mode="friend"):
                  (game_id, "-"*9, "X", game_mode))
     conn.commit()
     conn.close()
+
+
+init_db()
 
 def update_game(game_id, board, current_player):
     conn = get_db()
