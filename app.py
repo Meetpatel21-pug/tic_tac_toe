@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, url_for, request, jsonify
+from flask import Flask, render_template, redirect, url_for, request, jsonify, session
 import sqlite3
 import uuid
 import random
@@ -8,6 +8,7 @@ import traceback
 from werkzeug.exceptions import HTTPException
 
 app = Flask(__name__)
+app.secret_key = os.environ.get("FLASK_SECRET_KEY", "tic-tac-toe-secret")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(BASE_DIR, "tic.db")
 
@@ -43,13 +44,22 @@ def init_db():
             x_wins INTEGER DEFAULT 0,
             o_wins INTEGER DEFAULT 0,
             draws INTEGER DEFAULT 0,
-            game_mode TEXT DEFAULT 'friend'
+            game_mode TEXT DEFAULT 'friend',
+            result_recorded INTEGER DEFAULT 0,
+            x_player_id TEXT,
+            o_player_id TEXT
         )
     """)
 
     columns = [row[1] for row in c.execute("PRAGMA table_info(game)").fetchall()]
     if "game_mode" not in columns:
         c.execute("ALTER TABLE game ADD COLUMN game_mode TEXT DEFAULT 'friend'")
+    if "result_recorded" not in columns:
+        c.execute("ALTER TABLE game ADD COLUMN result_recorded INTEGER DEFAULT 0")
+    if "x_player_id" not in columns:
+        c.execute("ALTER TABLE game ADD COLUMN x_player_id TEXT")
+    if "o_player_id" not in columns:
+        c.execute("ALTER TABLE game ADD COLUMN o_player_id TEXT")
 
     conn.commit()
     conn.close()
@@ -63,12 +73,15 @@ def get_game(game_id):
             game_mode = game["game_mode"]
         except (IndexError, KeyError):
             game_mode = "friend"
-        return list(game["board"]), game["current_player"], game["x_wins"], game["o_wins"], game["draws"], game_mode
-    return None, None, None, None, None, None
+        result_recorded = game["result_recorded"] if "result_recorded" in game.keys() else 0
+        x_player_id = game["x_player_id"] if "x_player_id" in game.keys() else None
+        o_player_id = game["o_player_id"] if "o_player_id" in game.keys() else None
+        return list(game["board"]), game["current_player"], game["x_wins"], game["o_wins"], game["draws"], game_mode, result_recorded, x_player_id, o_player_id
+    return None, None, None, None, None, None, None, None, None
 
 def create_game(game_id, game_mode="friend"):
     conn = get_db()
-    conn.execute("INSERT OR REPLACE INTO game (id, board, current_player, x_wins, o_wins, draws, game_mode) VALUES (?, ?, ?, 0, 0, 0, ?)",
+    conn.execute("INSERT OR REPLACE INTO game (id, board, current_player, x_wins, o_wins, draws, game_mode, result_recorded, x_player_id, o_player_id) VALUES (?, ?, ?, 0, 0, 0, ?, 0, NULL, NULL)",
                  (game_id, "-"*9, "X", game_mode))
     conn.commit()
     conn.close()
@@ -90,6 +103,70 @@ def update_score(game_id, winner=None):
         conn.execute("UPDATE game SET o_wins = o_wins + 1 WHERE id=?", (game_id,))
     elif winner == "Draw":
         conn.execute("UPDATE game SET draws = draws + 1 WHERE id=?", (game_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_or_create_session_player_id():
+    player_id = session.get("player_id")
+    if not player_id:
+        player_id = str(uuid.uuid4())
+        session["player_id"] = player_id
+    return player_id
+
+
+def assign_or_get_player_symbol(game_id, game_mode, x_player_id, o_player_id):
+    if game_mode != "friend":
+        return "X"
+
+    player_id = get_or_create_session_player_id()
+
+    if x_player_id == player_id:
+        return "X"
+    if o_player_id == player_id:
+        return "O"
+
+    conn = get_db()
+    if not x_player_id:
+        conn.execute("UPDATE game SET x_player_id=? WHERE id=?", (player_id, game_id))
+        conn.commit()
+        conn.close()
+        return "X"
+
+    if not o_player_id:
+        conn.execute("UPDATE game SET o_player_id=? WHERE id=?", (player_id, game_id))
+        conn.commit()
+        conn.close()
+        return "O"
+
+    conn.close()
+    return "SPECTATOR"
+
+
+def maybe_record_result(game_id, board):
+    winner = check_winner(board)
+    result = None
+    if winner:
+        result = winner
+    elif "-" not in board:
+        result = "Draw"
+
+    if not result:
+        return
+
+    conn = get_db()
+    row = conn.execute("SELECT result_recorded FROM game WHERE id=?", (game_id,)).fetchone()
+    if row and row["result_recorded"]:
+        conn.close()
+        return
+
+    if result == "X":
+        conn.execute("UPDATE game SET x_wins=x_wins+1, result_recorded=1 WHERE id=?", (game_id,))
+    elif result == "O":
+        conn.execute("UPDATE game SET o_wins=o_wins+1, result_recorded=1 WHERE id=?", (game_id,))
+    else:
+        conn.execute("UPDATE game SET draws=draws+1, result_recorded=1 WHERE id=?", (game_id,))
+
     conn.commit()
     conn.close()
 
@@ -154,7 +231,7 @@ def home():
     if request.method == "POST":
         game_id = request.form["game_id"].strip()
         if game_id:  # Join existing game; create only if it does not exist.
-            board, _, _, _, _, _ = get_game(game_id)
+            board, _, _, _, _, _, _, _, _ = get_game(game_id)
             if board is None:
                 create_game(game_id, "friend")
             return redirect(url_for("index", game_id=game_id))
@@ -169,21 +246,26 @@ def new_game():
 
 @app.route("/game/<game_id>")
 def index(game_id):
-    board, current_player, x_wins, o_wins, draws, game_mode = get_game(game_id)
+    board, current_player, x_wins, o_wins, draws, game_mode, _, x_player_id, o_player_id = get_game(game_id)
     if board is None:
         return f"Game {game_id} not found. Please create a new game."
+
+    viewer_symbol = assign_or_get_player_symbol(game_id, game_mode, x_player_id, o_player_id)
     winner = check_winner(board)
-    if winner:
-        update_score(game_id, winner)
-    elif "-" not in board and not winner:
-        update_score(game_id, "Draw")
+    draw = ("-" not in board and not winner)
+    can_move = not winner and not draw and (
+        (game_mode == "friend" and viewer_symbol in ["X", "O"] and viewer_symbol == current_player) or
+        (game_mode == "computer" and current_player == "X")
+    )
+
     return render_template("index.html", board=board, current=current_player, winner=winner,
-                           game_id=game_id, x_wins=x_wins, o_wins=o_wins, draws=draws, game_mode=game_mode)
+                           game_id=game_id, x_wins=x_wins, o_wins=o_wins, draws=draws, game_mode=game_mode,
+                           can_move=can_move, viewer_symbol=viewer_symbol)
 
 
 @app.route("/state/<game_id>")
 def game_state(game_id):
-    board, current_player, x_wins, o_wins, draws, game_mode = get_game(game_id)
+    board, current_player, x_wins, o_wins, draws, game_mode, _, _, _ = get_game(game_id)
     if board is None:
         return jsonify({"error": "not_found"}), 404
 
@@ -204,7 +286,15 @@ def game_state(game_id):
 
 @app.route("/move/<game_id>/<int:cell>")
 def move(game_id, cell):
-    board, current_player, _, _, _, game_mode = get_game(game_id)
+    board, current_player, _, _, _, game_mode, _, x_player_id, o_player_id = get_game(game_id)
+    if board is None:
+        return redirect(url_for("home"))
+
+    if game_mode == "friend":
+        viewer_symbol = assign_or_get_player_symbol(game_id, game_mode, x_player_id, o_player_id)
+        if viewer_symbol != current_player:
+            return redirect(url_for("index", game_id=game_id))
+
     if board and board[cell] == "-" and not check_winner(board):
         board[cell] = current_player
         winner = check_winner(board)
@@ -222,13 +312,14 @@ def move(game_id, cell):
                         current_player = "X"
         
         update_game(game_id, board, current_player)
+        maybe_record_result(game_id, board)
     return redirect(url_for("index", game_id=game_id))
 
 @app.route("/reset/<game_id>")
 def reset(game_id):
     # Reset board but keep scores
     conn = get_db()
-    conn.execute("UPDATE game SET board=?, current_player=? WHERE id=?", ("-"*9, "X", game_id))
+    conn.execute("UPDATE game SET board=?, current_player=?, result_recorded=0 WHERE id=?", ("-"*9, "X", game_id))
     conn.commit()
     conn.close()
     return redirect(url_for("index", game_id=game_id))

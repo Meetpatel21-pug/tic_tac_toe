@@ -265,6 +265,9 @@
                     👥 Playing with Friend
                 {% endif %}
             </div>
+            <div style="font-size: 12px; color: #777; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px;">
+                You are: {% if viewer_symbol == 'SPECTATOR' %}Spectator{% else %}Player {{ viewer_symbol }}{% endif %}
+            </div>
             <div class="game-status {% if winner %}status-winner{% elif '-' not in board %}status-draw{% else %}status-playing{% endif %}">
                 {% if winner %}
                     🎉 Player <span class="{% if winner == 'X' %}x{% else %}o{% endif %}">{{ winner }}</span> Wins!
@@ -274,6 +277,9 @@
                     Current: <span class="{% if current == 'X' %}x{% else %}o{% endif %}">{{ current }}</span>
                     {% if game_mode == 'computer' and current == 'O' %}
                         (Computer thinking...)
+                    {% endif %}
+                    {% if game_mode == 'friend' and not can_move %}
+                        (Waiting for other player)
                     {% endif %}
                 {% endif %}
             </div>
@@ -286,7 +292,11 @@
                         {% if board[i] != "-" %}
                             {{ board[i] }}
                         {% else %}
-                            <a href="{{ url_for('move', game_id=game_id, cell=i) }}">·</a>
+                            {% if can_move %}
+                                <a href="{{ url_for('move', game_id=game_id, cell=i) }}">·</a>
+                            {% else %}
+                                ·
+                            {% endif %}
                         {% endif %}
                     </div>
                 {% endfor %}
