@@ -318,7 +318,7 @@
         </div>
     </div>
 
-    <div id="game-state" data-state="{{ ''.join(board) }}|{{ current }}|{{ winner or '' }}|{{ x_wins }}|{{ o_wins }}|{{ draws }}" style="display:none;"></div>
+    <div id="game-state" data-state="{{ ''.join(board) }}|{{ current }}|{{ winner or '' }}|{{ x_wins }}|{{ o_wins }}|{{ draws }}" data-game-id="{{ game_id }}" data-mode="{{ game_mode }}" style="display:none;"></div>
     <script>
         (function () {
             var stateNode = document.getElementById("game-state");
@@ -327,21 +327,40 @@
             }
 
             var currentState = stateNode.getAttribute("data-state") || "";
+            var gameId = stateNode.getAttribute("data-game-id") || "";
+            var gameMode = stateNode.getAttribute("data-mode") || "friend";
 
             function checkForUpdates() {
                 if (document.visibilityState !== "visible") {
                     return;
                 }
 
-                fetch(window.location.href, { cache: "no-store" })
-                    .then(function (response) { return response.text(); })
-                    .then(function (html) {
-                        var match = html.match(/id="game-state"[^>]*data-state="([^"]*)"/);
-                        if (!match) {
+                if (gameMode !== "friend") {
+                    return;
+                }
+
+                fetch("/state/" + encodeURIComponent(gameId) + "?_=" + Date.now(), { cache: "no-store" })
+                    .then(function (response) {
+                        if (!response.ok) {
+                            throw new Error("Polling failed");
+                        }
+                        return response.json();
+                    })
+                    .then(function (state) {
+                        var nextState = [
+                            state.board || "",
+                            state.current || "",
+                            state.winner || "",
+                            String(state.x_wins || 0),
+                            String(state.o_wins || 0),
+                            String(state.draws || 0)
+                        ].join("|");
+
+                        if (!nextState) {
                             return;
                         }
 
-                        if (match[1] !== currentState) {
+                        if (nextState !== currentState) {
                             window.location.reload();
                         }
                     })

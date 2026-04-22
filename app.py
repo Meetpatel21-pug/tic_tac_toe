@@ -1,4 +1,4 @@
-from flask import Flask, render_template, redirect, url_for, request
+from flask import Flask, render_template, redirect, url_for, request, jsonify
 import sqlite3
 import uuid
 import random
@@ -152,9 +152,11 @@ def new_game_id():
 @app.route("/", methods=["GET", "POST"])
 def home():
     if request.method == "POST":
-        game_id = request.form["game_id"]
-        if game_id:  # Only join existing game if ID provided
-            create_game(game_id, "friend")
+        game_id = request.form["game_id"].strip()
+        if game_id:  # Join existing game; create only if it does not exist.
+            board, _, _, _, _, _ = get_game(game_id)
+            if board is None:
+                create_game(game_id, "friend")
             return redirect(url_for("index", game_id=game_id))
     return render_template("home.html")
 
@@ -177,6 +179,28 @@ def index(game_id):
         update_score(game_id, "Draw")
     return render_template("index.html", board=board, current=current_player, winner=winner,
                            game_id=game_id, x_wins=x_wins, o_wins=o_wins, draws=draws, game_mode=game_mode)
+
+
+@app.route("/state/<game_id>")
+def game_state(game_id):
+    board, current_player, x_wins, o_wins, draws, game_mode = get_game(game_id)
+    if board is None:
+        return jsonify({"error": "not_found"}), 404
+
+    winner = check_winner(board)
+    if not winner and "-" not in board:
+        winner = "Draw"
+
+    state = {
+        "board": "".join(board),
+        "current": current_player,
+        "winner": winner or "",
+        "x_wins": x_wins,
+        "o_wins": o_wins,
+        "draws": draws,
+        "mode": game_mode,
+    }
+    return jsonify(state)
 
 @app.route("/move/<game_id>/<int:cell>")
 def move(game_id, cell):
