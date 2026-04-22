@@ -322,7 +322,9 @@
         </div>
 
         <div class="action-buttons">
-            <a href="{{ url_for('reset', game_id=game_id) }}" class="btn btn-secondary">Reset Board</a>
+            {% if winner or "-" not in board %}
+                <a href="{{ url_for('reset', game_id=game_id) }}" class="btn btn-secondary">Reset Board</a>
+            {% endif %}
             <a href="{{ url_for('new_game') }}" class="btn btn-secondary">New Game</a>
             <a href="{{ url_for('home') }}" class="btn btn-primary">Back to Home</a>
         </div>

@@ -1,10 +1,9 @@
-from flask import Flask, render_template, redirect, url_for, request, jsonify, session
+from flask import Flask, render_template, redirect, url_for, request, session, jsonify
 import sqlite3
 import uuid
 import random
 import os
 import traceback
-
 from werkzeug.exceptions import HTTPException
 
 app = Flask(__name__)
@@ -18,8 +17,6 @@ def handle_unexpected_error(error):
     if isinstance(error, HTTPException):
         return error
     return traceback.format_exc(), 500, {"Content-Type": "text/plain; charset=utf-8"}
-
-
 @app.after_request
 def add_no_cache_headers(response):
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
@@ -51,14 +48,15 @@ def init_db():
         )
     """)
 
-    columns = [row[1] for row in c.execute("PRAGMA table_info(game)").fetchall()]
-    if "game_mode" not in columns:
+    # Backward-compatible migration for existing databases.
+    cols = [row[1] for row in c.execute("PRAGMA table_info(game)").fetchall()]
+    if "game_mode" not in cols:
         c.execute("ALTER TABLE game ADD COLUMN game_mode TEXT DEFAULT 'friend'")
-    if "result_recorded" not in columns:
+    if "result_recorded" not in cols:
         c.execute("ALTER TABLE game ADD COLUMN result_recorded INTEGER DEFAULT 0")
-    if "x_player_id" not in columns:
+    if "x_player_id" not in cols:
         c.execute("ALTER TABLE game ADD COLUMN x_player_id TEXT")
-    if "o_player_id" not in columns:
+    if "o_player_id" not in cols:
         c.execute("ALTER TABLE game ADD COLUMN o_player_id TEXT")
 
     conn.commit()
@@ -86,7 +84,7 @@ def create_game(game_id, game_mode="friend"):
     conn.commit()
     conn.close()
 
-
+# Ensure DB/table exist in WSGI environments (PythonAnywhere imports module; __main__ does not run).
 init_db()
 
 def update_game(game_id, board, current_player):
