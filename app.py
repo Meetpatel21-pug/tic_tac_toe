@@ -18,6 +18,14 @@ def handle_unexpected_error(error):
         return error
     return traceback.format_exc(), 500, {"Content-Type": "text/plain; charset=utf-8"}
 
+
+@app.after_request
+def add_no_cache_headers(response):
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
 # --- Database helpers ---
 def get_db():
     conn = sqlite3.connect(DB_PATH)
